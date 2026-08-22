@@ -1,1 +1,1 @@
-google-genai
+"nothing enjoy with core python runtime no need external libraries.🙂"

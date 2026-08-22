@@ -6,21 +6,17 @@ from config import Config
 class HistoryManager:
     def __init__(self, config: Config):
         self.config = config
-        # Use $HOME environment variable which is standard in Termux
-        self.memory_dir = os.path.join(os.environ.get("HOME", "."), ".lobster")
+        self.memory_dir = os.path.join(os.getcwd(), ".lobster_data")
         self.history_file = os.path.join(self.memory_dir, "history.json")
-        
-        # Ensure directory exists
         os.makedirs(self.memory_dir, exist_ok=True)
 
     def save_history(self, history: List[Dict[str, Any]]) -> None:
         """Save current conversation history to disk."""
         try:
-            # Prune history if it's getting too large to save tokens on next load
-            # We keep the last 50 messages (25 turns)
-            max_messages = 500
-            if len(history) > max_messages:
-                history = history[-max_messages:]
+            # Prune history if it's getting too large (keep last 50 turns)
+            max_turns = 50
+            if len(history) > max_turns:
+                history = history[-max_turns:]
             
             with open(self.history_file, "w", encoding="utf-8") as f:
                 json.dump(history, f, indent=2, ensure_ascii=False)

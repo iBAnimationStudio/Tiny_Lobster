@@ -28,7 +28,7 @@ def main():
             user_input = input("you> ").strip()
         except (EOFError, KeyboardInterrupt):
             print("\nSaving history and exiting...")
-            agent.history_manager.save_history(agent.history)
+            agent.history_manager.save_history(agent.history) # Safety save
             break
             
         if not user_input: continue
@@ -36,7 +36,7 @@ def main():
         if user_input.startswith("/"):
             cmd = user_input.lower()
             if cmd in ("/exit", "/quit"): 
-                agent.history_manager.save_history(agent.history)
+                agent.history_manager.save_history(agent.history) # Safety save
                 print("Goodbye!"); break
             elif cmd == "/clear": agent.clear_history()
             elif cmd == "/help": print("Commands: /help, /clear, /status, /model, /memory, /exit")
