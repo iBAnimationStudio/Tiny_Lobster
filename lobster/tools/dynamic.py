@@ -7,9 +7,19 @@ class DynamicTool(Tool):
     def __init__(self, config: Config, meta: dict):
         self.name = meta["name"]
         self.description = meta["description"]
-        self.parameters = meta["parameters"]
         self.filename = meta["filename"]
         self.config = config
+        
+        # CRITICAL FIX: Ensure parameters are always wrapped in an OBJECT type
+        params = meta.get("parameters", {})
+        if params.get("type") != "object":
+            params = {
+                "type": "object",
+                "properties": params.get("properties", {}),
+                "required": params.get("required", [])
+            }
+        self.parameters = params
+        
         self.workspace = os.path.join(os.getcwd(), ".lobster_data", "workspace")
 
     def execute(self, **kwargs) -> str:
@@ -18,9 +28,6 @@ class DynamicTool(Tool):
             return f"Error: Custom tool script '{self.filename}' not found in workspace."
         
         try:
-            # We pass the arguments as environment variables or a JSON file for the script to read
-            # For simplicity in v0.1, we'll assume the script uses sys.argv or input() 
-            # But to make it robust, let's pass args as a JSON string via env var
             import json
             env = os.environ.copy()
             env["LOBSTER_TOOL_ARGS"] = json.dumps(kwargs)
