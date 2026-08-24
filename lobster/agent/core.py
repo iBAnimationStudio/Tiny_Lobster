@@ -14,6 +14,7 @@ from lobster.utils.logging import log_debug
 from lobster.utils.loader import load_markdown_file
 from lobster.memory.history import HistoryManager
 from lobster.memory.facts import FactMemory
+from lobster.tools.web import WebTool
 
 class Agent:
     def __init__(self, config: Config, model: ModelBackend):
@@ -41,6 +42,7 @@ class Agent:
             "terminal": TerminalTool(config),
             "file": FileTool(config),
             "system_info": SystemInfoTool(),
+            "web": WebTool(config),
             "custom_tool_manager": CustomToolManager(config),
             "memory": MemoryTool(config)
         }

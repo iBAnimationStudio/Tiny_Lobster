@@ -8,6 +8,7 @@ from lobster.tools.terminal import TerminalTool
 from lobster.tools.filesystem import FileTool
 from lobster.tools.system import SystemInfoTool
 from lobster.tools.base import Tool
+from lobster.tools.web import WebTool
 
 class SelfTester:
     def __init__(self):
@@ -31,7 +32,21 @@ class SelfTester:
             self._fail("Config", str(e))
             return False
 
-        # 2. Tool Integrity Check
+        # 2. Workspace Directory Check
+        try:
+            workspace_files_path = os.path.join(
+                os.getcwd(), ".lobster_data", "workspace", "lobsters_files"
+            )
+            existed = os.path.exists(workspace_files_path)
+            os.makedirs(workspace_files_path, exist_ok=True)
+            status_msg = "Existing directory verified" if existed else "Created missing directory (.lobster_data/.../lobsters_files)"
+            self._pass("Workspace", status_msg)
+        except Exception as e:
+            self._fail("Workspace", f"Failed to initialize workspace: {str(e)}")
+            return False
+
+
+        # 3. Tool Integrity Check
         try:
             term_tool = TerminalTool(config)
             res = term_tool.execute(command="echo test_lobster")
@@ -50,12 +65,20 @@ class SelfTester:
             info = sys_tool.execute()
             if "python_version" not in info: raise Exception("Missing system info")
             self._pass("SystemInfoTool", "Environment detection verified")
+            
+            
+            web_tool = WebTool(config)
+            # Test SSRF block safety
+            ssrf_check = web_tool.execute(action="fetch", url="http://127.0.0.1:8080")
+            if "blocked" not in ssrf_check.lower() and "prohibited" not in ssrf_check.lower():
+                raise Exception("WebTool failed to block local SSRF attempt")
+            self._pass("WebTool", "Built-in web subsystem and SSRF validation verified")
 
         except Exception as e:
             self._fail("Tools", str(e))
             return False
 
-        # 3. Model Connectivity Check (Lightweight)
+        # 4. Model Connectivity Check (Lightweight)
         try:
             model = GeminiBackend(config)
             
