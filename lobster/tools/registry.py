@@ -2,7 +2,7 @@ import os
 import json
 import importlib.util
 from typing import List, Dict, Any
-from config import Config
+from lobster.config import Config
 
 class ToolRegistry:
     def __init__(self, config: Config):

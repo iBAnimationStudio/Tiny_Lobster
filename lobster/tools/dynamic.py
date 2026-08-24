@@ -1,7 +1,7 @@
 import os
 import subprocess
-from .base import Tool
-from config import Config
+from lobster.tools.base import Tool
+from lobster.config import Config
 
 class DynamicTool(Tool):
     def __init__(self, config: Config, meta: dict):

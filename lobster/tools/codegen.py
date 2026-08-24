@@ -1,9 +1,9 @@
 import os
 import subprocess
 import json
-from .base import Tool
-from config import Config
-from .registry import ToolRegistry
+from lobster.tools.base import Tool
+from lobster.config import Config
+from lobster.tools.registry import ToolRegistry
 
 class CodeGenTool(Tool):
     name = "codegen"

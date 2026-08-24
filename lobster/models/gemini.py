@@ -2,9 +2,9 @@ import urllib.request
 import urllib.error
 import json
 from typing import List, Dict, Any
-from .base import ModelBackend
-from tools.base import Tool
-from config import Config
+from lobster.models.base import ModelBackend
+from lobster.tools.base import Tool
+from lobster.config import Config
 
 class GeminiBackend(ModelBackend):
     def __init__(self, config: Config):
@@ -28,11 +28,27 @@ class GeminiBackend(ModelBackend):
                 ]
             }
         ]
-
+        
     def start_session(self, system_prompt: str, tools: List[Tool]) -> None:
+        """Initialize system prompt, tools, and reset session history."""
         self.system_prompt = system_prompt
         self.tools_config = self._format_tools(tools)
         self.history = []
+
+    def set_system_context(self, system_prompt: str, tools: List[Tool]) -> None:
+        """Update system prompt and tools without wiping conversation history."""
+        self.system_prompt = system_prompt
+        self.tools_config = self._format_tools(tools)
+
+
+    def set_system_context(self, system_prompt: str, tools: List[Tool]) -> None:
+        """Update system prompt and tools without wiping conversation history."""
+        self.system_prompt = system_prompt
+        self.tools_config = self._format_tools(tools)
+
+    def load_history(self, history: List[Dict[str, Any]]) -> None:
+        """Load persisted history from disk."""
+        self.history = history
 
     def send_message(self, text: str) -> Dict[str, Any]:
         self.history.append({"role": "user", "parts": [{"text": text}]})
@@ -80,28 +96,21 @@ class GeminiBackend(ModelBackend):
             content = candidates[0].get("content", {})
             parts = content.get("parts", [])
             
+            # Save the ENTIRE model response content into history to preserve thinking/signatures
+            if parts:
+                self.history.append({"role": "model", "parts": parts})
+            
             for part in parts:
                 if "text" in part:
                     result["text"] += part["text"]
                 elif "functionCall" in part:
                     fc = part["functionCall"]
-                    tc = {
+                    result["tool_calls"].append({
                         "name": fc.get("name"),
                         "arguments": fc.get("args", {})
-                    }
-                    # CRITICAL: Preserve thought_signature exactly as the API returns it
-                    if "thought_signature" in fc:
-                        tc["thought_signature"] = fc["thought_signature"]
-                    
-                    result["tool_calls"].append(tc)
-                    
-                    # CRITICAL: Add the model's functionCall to history so the 
-                    # thought_signature is preserved for the next API turn.
-                    self.history.append({"role": "model", "parts": [part]})
+                    })
                     
         return result
 
     def clear_session(self) -> None:
         self.history = []
-        self.system_prompt = ""
-        self.tools_config = []

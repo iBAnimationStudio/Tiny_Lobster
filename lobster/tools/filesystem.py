@@ -1,6 +1,6 @@
 import os
 from .base import Tool
-from config import Config
+from ..config import Config
 
 class FileTool(Tool):
     name = "file"

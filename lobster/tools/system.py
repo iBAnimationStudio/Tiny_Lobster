@@ -1,7 +1,8 @@
 import os
 import platform
 import sys
-from .base import Tool
+from lobster.tools.base import Tool
+from lobster.config import Config
 
 class SystemInfoTool(Tool):
     name = "system_info"

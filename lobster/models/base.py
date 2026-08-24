@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any
-from tools.base import Tool
+from lobster.tools.base import Tool # FIXED: Use absolute import
 
 class ModelBackend(ABC):
     @abstractmethod

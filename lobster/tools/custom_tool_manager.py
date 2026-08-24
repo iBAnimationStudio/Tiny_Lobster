@@ -1,9 +1,9 @@
 import os
 import json
 import subprocess
-from .base import Tool
-from .registry import ToolRegistry
-from config import Config
+from lobster.tools.base import Tool
+from lobster.tools.registry import ToolRegistry
+from lobster.config import Config
 
 class CustomToolManager(Tool):
     name = "custom_tool_manager"
@@ -99,12 +99,30 @@ class CustomToolManager(Tool):
                 return "\n".join([f"- **{t['name']}**: {t['description']}" for t in tools])
 
             elif action == "delete":
-                if not tool_name: return "Error: 'tool_name' is required for deletion."
+                if not tool_name: 
+                    return "Error: 'tool_name' is required for deletion."
+                
                 tools = self.registry.load_registry()
+                target_tool = next((t for t in tools if t["name"] == tool_name), None)
+                
+                if not target_tool: 
+                    return f"Error: Tool '{tool_name}' not found."
+                
+                # 1. Delete physical script file from workspace
+                filename = target_tool.get("filename", f"{tool_name}.py")
+                file_path = os.path.join(self.workspace, filename)
+                if os.path.exists(file_path):
+                    try:
+                        os.remove(file_path)
+                    except Exception as e:
+                        return f"Error deleting script file '{filename}': {str(e)}"
+                
+                # 2. Remove metadata from registry
                 new_tools = [t for t in tools if t["name"] != tool_name]
-                if len(new_tools) == len(tools): return f"Error: Tool '{tool_name}' not found."
                 self.registry.save_registry(new_tools)
-                return f"🗑️ Tool '{tool_name}' removed from registry."
+                
+                return f"🗑️ Tool '{tool_name}' and script '{filename}' deleted successfully."
+
 
             elif action == "update":
                 if not tool_name or not description: return "Error: 'tool_name' and 'description' required for update."

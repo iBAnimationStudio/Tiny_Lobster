@@ -1,7 +1,7 @@
 import os
 import subprocess
-from .base import Tool
-from config import Config
+from lobster.tools.base import Tool
+from lobster.config import Config
 
 DANGEROUS_PATTERNS = [
     "rm ", "rm\t", "rm\n", "rm -", 

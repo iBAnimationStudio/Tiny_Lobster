@@ -1,7 +1,7 @@
 import os
 import json
 from typing import List, Dict, Any
-from config import Config
+from lobster.config import Config
 
 class HistoryManager:
     def __init__(self, config: Config):

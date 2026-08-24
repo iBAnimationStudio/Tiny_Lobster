@@ -1,12 +1,13 @@
 import sys
 import os
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+# No need to insert path if running from root, but good for safety
+sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 
-from config import Config
-from models.gemini import GeminiBackend
-from agent.core import Agent
-from utils.self_test import SelfTester
+from lobster.config import Config # FIXED: Use absolute import
+from lobster.models.gemini import GeminiBackend
+from lobster.agent.core import Agent
+from lobster.utils.self_test import SelfTester
 
 def main():
     tester = SelfTester()
@@ -28,7 +29,7 @@ def main():
             user_input = input("you> ").strip()
         except (EOFError, KeyboardInterrupt):
             print("\nSaving history and exiting...")
-            agent.history_manager.save_history(agent.history) # Safety save
+            agent.history_manager.save_history(agent.history)
             break
             
         if not user_input: continue
@@ -36,7 +37,7 @@ def main():
         if user_input.startswith("/"):
             cmd = user_input.lower()
             if cmd in ("/exit", "/quit"): 
-                agent.history_manager.save_history(agent.history) # Safety save
+                agent.history_manager.save_history(agent.history)
                 print("Goodbye!"); break
             elif cmd == "/clear": agent.clear_history()
             elif cmd == "/help": print("Commands: /help, /clear, /status, /model, /memory, /exit")
@@ -44,7 +45,7 @@ def main():
             elif cmd == "/model": print(f"Current model: {config.model}")
             elif cmd == "/memory": 
                 count = len(agent.history)
-                print(f"Persistent memory active. {count} messages stored in ~/.lobster/history.json")
+                print(f"Persistent memory active. {count} messages stored in .lobster_data/history.json")
             else: print("Unknown command.")
             continue
             

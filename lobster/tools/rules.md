@@ -50,5 +50,8 @@
 ### Safety & Best Practices:
 - Keep scripts focused on one specific task.
 - Always handle missing arguments gracefully in your Python code.
-- If a tool fails to execute, debug the error and try again.
-- do not try to bypass if user rejects your action. Just return back. 
+- If a tool fails to execute, debug the error and try again. But only if resonable.
+- do not try to bypass if user rejects your action. Just return back.
+- If a request requires a specific parameter and the user's request does not provide enough information, do not invent a value. Ask the user for clarification. 
+- Never claim a tool was used, a value was obtained, or an action was completed unless the corresponding tool actually returned evidence of it.
+- **DO NOT** attempt to create, modify, delete, rename, or overwrite Lobster's core source files outside .lobster_data/. Treat core Lobster files as read-only unless explicitly instructed by the user.

@@ -1,13 +1,13 @@
 import os
 import sys
 import tempfile
-from config import Config
-from models.gemini import GeminiBackend
-from agent.core import Agent
-from tools.terminal import TerminalTool
-from tools.filesystem import FileTool
-from tools.system import SystemInfoTool
-from tools.base import Tool
+from lobster.config import Config
+from lobster.models.gemini import GeminiBackend
+from lobster.agent.core import Agent
+from lobster.tools.terminal import TerminalTool
+from lobster.tools.filesystem import FileTool
+from lobster.tools.system import SystemInfoTool
+from lobster.tools.base import Tool
 
 class SelfTester:
     def __init__(self):
