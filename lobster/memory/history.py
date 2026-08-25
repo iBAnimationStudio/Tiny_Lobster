@@ -13,10 +13,10 @@ class HistoryManager:
     def save_history(self, history: List[Dict[str, Any]]) -> None:
         """Save current conversation history to disk."""
         try:
-            # Prune history if it's getting too large (keep last 50 turns)
-            max_turns = 50
-            if len(history) > max_turns:
-                history = history[-max_turns:]
+#            # Prune history if it's getting too large (keep last 50 turns)
+#            max_turns = 50
+#            if len(history) > max_turns:
+#                history = history[-max_turns:]
             
             with open(self.history_file, "w", encoding="utf-8") as f:
                 json.dump(history, f, indent=2, ensure_ascii=False)
