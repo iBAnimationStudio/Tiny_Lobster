@@ -15,6 +15,8 @@ from lobster.utils.loader import load_markdown_file
 from lobster.memory.history import HistoryManager
 from lobster.memory.facts import FactMemory
 from lobster.tools.web import WebTool
+from lobster.task.manager import TaskManager
+from lobster.tools.task_tool import TaskTool
 
 class Agent:
     def __init__(self, config: Config, model: ModelBackend):
@@ -22,6 +24,7 @@ class Agent:
         self.model = model
         
         # 1. Initialize Memory Manager & Load History FIRST
+        self.task_manager = TaskManager()
         self.history_manager = HistoryManager(config)
         self.history: List[Dict[str, Any]] = self.history_manager.load_history()
         self.model.load_history(self.history)
@@ -43,6 +46,7 @@ class Agent:
             "file": FileTool(config),
             "system_info": SystemInfoTool(),
             "web": WebTool(config),
+            "task_manager": TaskTool(Config, self.task_manager),
             "custom_tool_manager": CustomToolManager(config),
             "memory": MemoryTool(config)
         }
