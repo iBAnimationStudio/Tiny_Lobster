@@ -1,5 +1,4 @@
-import time
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from lobster.tools.base import Tool
 from lobster.config import Config
 from lobster.task.manager import TaskManager
@@ -7,8 +6,9 @@ from lobster.task.manager import TaskManager
 class TaskTool(Tool):
     name = "task_manager"
     description = (
-        "Create, update, list, or inspect scheduled tasks. Tasks persist and execute based on "
-        "priority and urgency with a 1-task-per-minute rate limit."
+        "Schedule, repeat, update, list, and inspect autonomous background tasks. "
+        "Supports cron expressions, run_at timestamps, fixed intervals, priority/urgency sorting, "
+        "and direct terminal or AI reasoning execution (1 task per minute rate limit)."
     )
     parameters = {
         "type": "object",
@@ -16,7 +16,7 @@ class TaskTool(Tool):
             "action": {
                 "type": "string",
                 "enum": ["create", "update", "list", "get"],
-                "description": "The task operation to perform."
+                "description": "Task operation: 'create', 'update', 'list', or 'get'."
             },
             "description": {
                 "type": "string",
@@ -24,19 +24,39 @@ class TaskTool(Tool):
             },
             "is_task_need_ai": {
                 "type": "boolean",
-                "description": "True if AI should reason & solve; False if direct shell command."
+                "description": "True if AI should reason & solve; False if raw shell command."
             },
             "prompt": {
                 "type": "string",
-                "description": "Required when is_task_need_ai is True: Instruction sent to AI upon execution."
+                "description": "Instruction sent to AI upon execution (MANDATORY if is_task_need_ai is True)."
             },
             "command": {
                 "type": "string",
-                "description": "Required when is_task_need_ai is False: Shell command to run directly."
+                "description": "Shell command to execute directly (MANDATORY if is_task_need_ai is False)."
+            },
+            "run_at": {
+                "type": "string",
+                "description": "Target execution time ('HH:MM', 'HH:MM:SS', or ISO 'YYYY-MM-DDTHH:MM:SS')."
             },
             "delay_seconds": {
                 "type": "integer",
-                "description": "Delay in seconds from now before executing (default: 0)."
+                "description": "One-off delay in seconds from current time."
+            },
+            "interval_seconds": {
+                "type": "integer",
+                "description": "Recurring interval in seconds (e.g. 3600 for every hour)."
+            },
+            "cron": {
+                "type": "string",
+                "description": "Standard 5-part cron expression (e.g. '*/30 * * * *', '0 9 * * 1-5')."
+            },
+            "repeat": {
+                "type": "boolean",
+                "description": "Whether the task repeats periodically."
+            },
+            "repeat_count": {
+                "type": "integer",
+                "description": "Number of times to repeat before completing (null/omit for indefinite)."
             },
             "priority": {
                 "type": "integer",
@@ -48,12 +68,12 @@ class TaskTool(Tool):
             },
             "task_id": {
                 "type": "string",
-                "description": "Task ID (required for 'update' or 'get')."
+                "description": "Target task ID (required for 'update' or 'get')."
             },
             "status_filter": {
                 "type": "string",
                 "enum": ["pending", "in_progress", "completed", "failed"],
-                "description": "Filter list results by status."
+                "description": "Filter list by status."
             }
         },
         "required": ["action"]
@@ -70,7 +90,12 @@ class TaskTool(Tool):
         is_task_need_ai: bool = True,
         prompt: str = None,
         command: str = None,
+        run_at: str = None,
         delay_seconds: int = 0,
+        interval_seconds: int = None,
+        cron: str = None,
+        repeat: bool = False,
+        repeat_count: int = None,
         priority: int = 1,
         urgency: int = 1,
         task_id: str = None,
@@ -82,22 +107,19 @@ class TaskTool(Tool):
                 if not description or not description.strip():
                     return "Error: 'description' is required to create a task."
 
-                # Enforce prompt requirement for AI tasks
                 if is_task_need_ai:
                     if not prompt or not prompt.strip():
                         return (
                             "Error: 'prompt' is required when 'is_task_need_ai' is True. "
-                            "Please specify the prompt/instructions to send to the AI when executing."
+                            "Please provide the exact prompt to feed the AI when the task runs."
                         )
                 else:
-                    # Enforce command requirement for non-AI tasks
                     if not command or not command.strip():
                         return (
                             "Error: 'command' is required when 'is_task_need_ai' is False. "
-                            "Please specify the shell command to run directly."
+                            "Please provide the shell command to execute."
                         )
 
-                scheduled_epoch = time.time() + max(0, delay_seconds or 0)
                 t = self.tm.create_task(
                     description=description.strip(),
                     is_task_need_ai=is_task_need_ai,
@@ -105,9 +127,19 @@ class TaskTool(Tool):
                     command=command.strip() if command else None,
                     priority=priority,
                     urgency=urgency,
-                    scheduled_epoch=scheduled_epoch
+                    run_at=run_at,
+                    delay_seconds=delay_seconds,
+                    interval_seconds=interval_seconds,
+                    cron=cron,
+                    repeat=repeat,
+                    repeat_count=repeat_count
                 )
-                return f"✅ Task '{t['id']}' created successfully (AI: {is_task_need_ai}, Scheduled in: {delay_seconds}s)."
+                return (
+                    f"✅ Task '{t['id']}' scheduled successfully.\n"
+                    f"- Next Run: {t['next_run']}\n"
+                    f"- AI Mode: {t['is_task_need_ai']}\n"
+                    f"- Repeat: {t['repeat']} (Cron: {t.get('cron') or 'None'}, Interval: {t.get('interval_seconds') or 'None'}s)"
+                )
 
             elif action == "list":
                 tasks = self.tm.list_tasks(status=status_filter)
@@ -115,9 +147,15 @@ class TaskTool(Tool):
                     return "No tasks found."
                 lines = [f"Found {len(tasks)} tasks:"]
                 for t in tasks:
+                    sched_info = f"Next: {t.get('next_run', 'N/A')}"
+                    if t.get("cron"):
+                        sched_info += f" [Cron: {t['cron']}]"
+                    elif t.get("interval_seconds"):
+                        sched_info += f" [Every: {t['interval_seconds']}s]"
+
                     lines.append(
                         f"- [{t['id']}] ({t['status']}) P:{t['priority']} U:{t['urgency']} "
-                        f"AI:{t['is_task_need_ai']} | {t['description']}"
+                        f"AI:{t['is_task_need_ai']} | {t['description']} | {sched_info}"
                     )
                 return "\n".join(lines)
 
@@ -132,6 +170,9 @@ class TaskTool(Tool):
                     f"Task {match['id']}:\n"
                     f"Description: {match['description']}\n"
                     f"Status: {match['status']}\n"
+                    f"Next Run: {match.get('next_run')}\n"
+                    f"Last Run: {match.get('last_run') or 'Never'}\n"
+                    f"Schedule: Cron='{match.get('cron')}' | Interval={match.get('interval_seconds')}s | RunAt='{match.get('run_at')}'\n"
                     f"AI Required: {match['is_task_need_ai']}\n"
                     f"Priority: {match['priority']} | Urgency: {match['urgency']}\n"
                     f"Prompt: {match.get('prompt') or 'N/A'}\n"
@@ -148,7 +189,11 @@ class TaskTool(Tool):
                 if description: updates["description"] = description
                 if prompt: updates["prompt"] = prompt
                 if command: updates["command"] = command
-                
+                if run_at: updates["run_at"] = run_at
+                if interval_seconds: updates["interval_seconds"] = interval_seconds
+                if cron: updates["cron"] = cron
+                if repeat is not None: updates["repeat"] = repeat
+
                 success = self.tm.update_task(task_id, **updates)
                 if success:
                     return f"✅ Task '{task_id}' updated successfully."
