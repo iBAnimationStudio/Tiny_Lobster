@@ -72,10 +72,10 @@ def main():
                 print("Unknown command.")
             continue
             
-        print("🦞 thinking...")
+        print("💖 thinking...")
         try:
             response = agent.run_turn(user_input)
-            print(f"\nlobster> {response}\n")
+            print(f"\nHina> {response}\n")
         except Exception as e:
             print(f"\nError: {str(e)}\n")
 

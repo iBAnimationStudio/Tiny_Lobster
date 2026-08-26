@@ -269,6 +269,23 @@ class TaskManager:
             self._save(tasks)
 
 
+    def cancel_task(self, task_id: str, reason: str = "Cancelled by user") -> bool:
+        """Stops/cancels an active or pending task without deleting its audit record."""
+        with self.lock:
+            tasks = self._load()
+            for t in tasks:
+                if t["id"] == task_id:
+                    if t.get("status") in ("completed", "cancelled"):
+                        return False
+                    t["status"] = "cancelled"
+                    t["result"] = f"Task cancelled: {reason}"
+                    t["completed_at"] = datetime.now(timezone.utc).isoformat()
+                    self._save(tasks)
+                    return True
+            return False
+
+
+
 class TaskWorker:
     """Background daemon enforcing 1 task per minute execution rate limit."""
     def __init__(self, task_manager: TaskManager, agent_executor):

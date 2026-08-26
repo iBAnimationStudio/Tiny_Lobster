@@ -1,5 +1,5 @@
 from typing import List, Dict, Any
-import yaml
+import json
 from lobster.config import Config
 from lobster.models.base import ModelBackend
 from lobster.tools.base import Tool
@@ -106,7 +106,7 @@ class Agent:
         facts = self.fact_memory.get_facts()
         memory_context = ""
         if facts:
-            memory_context = "\n\nCURRENT PERSISTENT MEMORY:\n" + yaml.dump(facts, default_flow_style=False)
+            memory_context = "\n\nCURRENT PERSISTENT MEMORY:\n" + json.dump(facts, indent=2)
     
         final_prompt = self.system_prompt + memory_context
 

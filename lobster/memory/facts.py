@@ -1,27 +1,27 @@
 import os
-import yaml
+import json
 from typing import Dict, Any, List
 from lobster.config import Config
 
 class FactMemory:
     def __init__(self):
         self.data_dir = os.path.join(os.getcwd(), ".lobster_data")
-        self.memory_file = os.path.join(self.data_dir, "facts.yaml")
+        self.memory_file = os.path.join(self.data_dir, "facts.json")
         os.makedirs(self.data_dir, exist_ok=True)
         self.facts = self._load()
 
     def _load(self) -> Dict[str, Any]:
         if os.path.exists(self.memory_file):
             try:
-                with open(self.memory_file, 'r') as f:
-                    return yaml.safe_load(f) or {}
+                with open(self.memory_file, 'r', encoding='utf-8') as f:
+                    return json.load(f) or {}
             except Exception:
                 return {}
         return {}
 
     def save(self):
-        with open(self.memory_file, 'w') as f:
-            yaml.dump(self.facts, f, default_flow_style=False)
+        with open(self.memory_file, 'w', encoding='utf-8') as f:
+            json.dump(self.facts, f, indent=2, ensure_ascii=False)
 
     def add_fact(self, category: str, key: str, value: Any):
         if category not in self.facts:

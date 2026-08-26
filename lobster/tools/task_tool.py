@@ -15,7 +15,7 @@ class TaskTool(Tool):
         "properties": {
             "action": {
                 "type": "string",
-                "enum": ["create", "update", "list", "get"],
+                "enum": ["create", "update", "cancel", "list", "get"],
                 "description": "Task operation: 'create', 'update', 'list', or 'get'."
             },
             "description": {
@@ -198,6 +198,16 @@ class TaskTool(Tool):
                 if success:
                     return f"✅ Task '{task_id}' updated successfully."
                 return f"Error: Task '{task_id}' not found."
+
+            elif action == "cancel":
+                if not task_id:
+                    return "Error: 'task_id' is required to cancel a task."
+                reason = kwargs.get("reason") or "Cancelled by user/agent."
+                success = self.tm.cancel_task(task_id, reason=reason)
+                if success:
+                    return f"🛑 Task '{task_id}' has been cancelled and stopped."
+                return f"Error: Task '{task_id}' not found or already completed/cancelled."
+
 
             return f"Error: Unknown action '{action}'."
         except Exception as e:

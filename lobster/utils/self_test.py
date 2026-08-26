@@ -22,7 +22,7 @@ class SelfTester:
         print(f"✅ PASSED: {component} - {msg}")
 
     def run_all(self):
-        print("🦞 Running Lobster Self-Diagnostics...")
+        print("💖 Running Hina Self-Diagnostics...")
         
         # 1. Configuration Check
         try:
@@ -105,5 +105,5 @@ class SelfTester:
             print("\n⚠️  Diagnostics failed. Fix the errors above before running Lobster.")
             return False
         
-        print("\n✨ All systems operational. Starting Lobster...\n")
+        print("\n✨ All systems operational. Starting Hina💖...\n")
         return True
