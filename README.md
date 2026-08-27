@@ -1,4 +1,4 @@
-# 🦞 Tiny Lobster (v0.2.0)
+# 🦞 Tiny Lobster (v0.2.0-alpha)
 
 A lightweight, robust, and modular AI agent built from scratch specifically to run inside **Termux** on Android. Inspired by Open-Claw agent architectures, Lobster brings the power of LLMs directly to your mobile terminal with full environment awareness, safe tool execution, and prompt-injection defense.
 
@@ -86,4 +86,6 @@ Lobster allows you to create and execute dynamic tools on the fly using the `cus
 Distributed under the GNU GPL v3 License. See `LICENSE` for more information.
 ---
 
-_This README was written by lobster._
+Notes:
+_The avove README was written by lobster._
+_This project is not fully tested and may contain more bugs that i have fixed_
