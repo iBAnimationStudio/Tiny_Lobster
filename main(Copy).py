@@ -1,6 +1,5 @@
 import sys
 import os
-import time
 
 # Ensure project root is in sys.path
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
@@ -10,26 +9,6 @@ from lobster.models.gemini import GeminiBackend
 from lobster.agent.core import Agent
 from lobster.utils.self_test import SelfTester
 from lobster.task.manager import TaskWorker
-from lobster.ui.server import WebUIServer
-
-def choose_mode() -> str:
-    """Prompt user to choose UI mode or check CLI flags (--web / --cli)."""
-    if "--web" in sys.argv:
-        return "1"
-    if "--cli" in sys.argv:
-        return "2"
-
-    print("\nSelect Interface Mode:")
-    print(" [1] 🌐 Web UI (Browser)")
-    print(" [2] 💻 Terminal UI (CLI)")
-    
-    while True:
-        choice = input("Enter choice (1/2) [default: 2]: ").strip()
-        if choice in ("", "2", "cli"):
-            return "2"
-        if choice in ("1", "web"):
-            return "1"
-        print("Invalid option. Please enter 1 or 2.")
 
 def main():
     tester = SelfTester()
@@ -48,28 +27,8 @@ def main():
     except Exception as e:
         print(f"Fatal Initialization Error: {e}")
         sys.exit(1)
-
-    mode = choose_mode()
-
-    if mode == "1":
-        # Launch Web UI mode
-        webui = WebUIServer(agent, port=8080)
-        webui.start()
-        print("\n🦞 Lobster Web UI is live at: http://localhost:8080")
-        print("Press Ctrl+C to stop the server.\n")
-        try:
-            while True:
-                time.sleep(1)
-        except (EOFError, KeyboardInterrupt):
-            print("\nShutting down Web UI and saving history...")
-            webui.stop()
-            worker.stop()
-            agent.history_manager.save_history(agent.history)
-            print("Goodbye!")
-            sys.exit(0)
-
-    # Launch Terminal CLI mode
-    print("\nType /help for commands, /exit to quit.\n")
+    
+    print("Type /help for commands, /exit to quit.\n")
     
     while True:
         try:

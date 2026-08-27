@@ -22,7 +22,7 @@ class SelfTester:
         print(f"✅ PASSED: {component} - {msg}")
 
     def run_all(self):
-        print("💖 Running Hina Self-Diagnostics...")
+        print("Running Lobster Self-Diagnostics...")
         
         # 1. Configuration Check
         try:

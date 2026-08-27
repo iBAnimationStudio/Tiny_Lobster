@@ -10,9 +10,9 @@ from typing import Dict, Any, List, Tuple
 from lobster.tools.base import Tool
 from lobster.config import Config
 
-USER_AGENT = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
-MAX_DOWNLOAD_BYTES = 1024 * 1024  # 1 MB max raw payload
-MAX_EXTRACTED_CHARS = 4000        # Max extracted text context
+USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+MAX_DOWNLOAD_BYTES = 1024 * 1024  # 1 MB
+MAX_EXTRACTED_CHARS = 4000        # Context limit
 
 
 def is_safe_url(url_str: str) -> Tuple[bool, str]:
@@ -26,7 +26,6 @@ def is_safe_url(url_str: str) -> Tuple[bool, str]:
         if not hostname:
             return False, "Invalid URL: Missing hostname."
 
-        # Check for localhost and loopback targets
         if hostname.lower() in ("localhost", "127.0.0.1", "0.0.0.0", "::1"):
             return False, "Access to localhost/loopback addresses is prohibited."
 
@@ -35,7 +34,7 @@ def is_safe_url(url_str: str) -> Tuple[bool, str]:
             if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
                 return False, f"Access to private/local IP address '{hostname}' is blocked."
         except ValueError:
-            pass  # Standard domain name
+            pass
 
         return True, ""
     except Exception as e:
@@ -43,7 +42,7 @@ def is_safe_url(url_str: str) -> Tuple[bool, str]:
 
 
 class CleanTextExtractor(HTMLParser):
-    """Strips script, style, navigation, and boilerplate; formats clean Markdown text."""
+    """Strips HTML boilerplate and extracts clean readable text."""
     IGNORE_TAGS = {
         "script", "style", "noscript", "svg", "header", 
         "footer", "nav", "iframe", "head", "link", "meta"
@@ -102,68 +101,11 @@ class CleanTextExtractor(HTMLParser):
         return clean
 
 
-class DDGSearchParser(HTMLParser):
-    """Extracts structured search results from DuckDuckGo HTML."""
-    def __init__(self):
-        super().__init__()
-        self.results: List[Dict[str, str]] = []
-        self.current_result: Dict[str, str] = {}
-        self.in_title = False
-        self.in_snippet = False
-        self.title_parts: List[str] = []
-        self.snippet_parts: List[str] = []
-
-    def handle_starttag(self, tag: str, attrs: list):
-        attrs_dict = dict(attrs)
-        classes = attrs_dict.get("class", "").split()
-
-        if tag == "a" and ("result__a" in classes or "result-link" in classes):
-            raw_href = attrs_dict.get("href", "")
-            # Resolve DDG redirect format (/l/?uddg=URL)
-            if "uddg=" in raw_href:
-                parsed_qs = urllib.parse.parse_qs(urllib.parse.urlparse(raw_href).query)
-                target_url = parsed_qs.get("uddg", [raw_href])[0]
-            else:
-                target_url = raw_href
-
-            self.current_result = {
-                "title": "",
-                "url": target_url,
-                "domain": urllib.parse.urlparse(target_url).netloc,
-                "snippet": ""
-            }
-            self.in_title = True
-            self.title_parts = []
-
-        elif tag in ("a", "td", "div", "span") and ("result__snippet" in classes or "result-snippet" in classes):
-            self.in_snippet = True
-            self.snippet_parts = []
-
-    def handle_endtag(self, tag: str):
-        if self.in_title and tag == "a":
-            self.in_title = False
-            if self.current_result:
-                self.current_result["title"] = "".join(self.title_parts).strip()
-
-        elif self.in_snippet:
-            self.in_snippet = False
-            if self.current_result and self.current_result.get("url"):
-                self.current_result["snippet"] = "".join(self.snippet_parts).strip()
-                self.results.append(self.current_result)
-                self.current_result = {}
-
-    def handle_data(self, data: str):
-        if self.in_title:
-            self.title_parts.append(data)
-        elif self.in_snippet:
-            self.snippet_parts.append(data)
-
-
 class WebTool(Tool):
     name = "web"
     description = (
         "Search the web or fetch/extract readable text content from URLs. "
-        "Supports action='search' (with 'query' and optional 'limit') and action='fetch' (with 'url')."
+        "Use 'search' to find URLs and 'fetch' to read full article contents."
     )
     parameters = {
         "type": "object",
@@ -171,15 +113,15 @@ class WebTool(Tool):
             "action": {
                 "type": "string",
                 "enum": ["search", "fetch"],
-                "description": "The web action: 'search' to query engines or 'fetch' to read a specific URL."
+                "description": "The web action: 'search' to query engines or 'fetch' to scrape a URL."
             },
             "query": {
                 "type": "string",
-                "description": "Search query keywords (required if action='search')."
+                "description": "Search keywords (required if action='search')."
             },
             "url": {
                 "type": "string",
-                "description": "The full HTTP/HTTPS URL of the page to read (required if action='fetch')."
+                "description": "The full HTTP/HTTPS URL to read (required if action='fetch')."
             },
             "limit": {
                 "type": "integer",
@@ -208,34 +150,105 @@ class WebTool(Tool):
         except Exception as e:
             return f"Error in web tool execution: {str(e)}"
 
+    def _clean_url(self, raw_url: str) -> str:
+        """Decode DuckDuckGo redirect wrapper URLs."""
+        if "uddg=" in raw_url:
+            parsed = urllib.parse.parse_qs(urllib.parse.urlparse(raw_url).query)
+            return parsed.get("uddg", [raw_url])[0]
+        if raw_url.startswith("//"):
+            return "https:" + raw_url
+        return raw_url
+
+    def _fetch_ddg_html(self, query: str) -> str:
+        """Fetch search results via POST to avoid GET bot-blocks."""
+        endpoints = [
+            ("https://html.duckduckgo.com/html/", {"q": query, "b": ""}),
+            ("https://lite.duckduckgo.com/lite/", {"q": query})
+        ]
+
+        headers = {
+            "User-Agent": USER_AGENT,
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Origin": "https://duckduckgo.com",
+            "Referer": "https://duckduckgo.com/"
+        }
+
+        for url, form_data in endpoints:
+            try:
+                data = urllib.parse.urlencode(form_data).encode("utf-8")
+                req = urllib.request.Request(url, data=data, headers=headers)
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    raw = resp.read().decode("utf-8", errors="replace")
+                    if "result__snippet" in raw or "result-snippet" in raw:
+                        return raw
+            except Exception:
+                continue
+
+        # Fallback to standard GET if POST failed
+        fallback_url = f"https://html.duckduckgo.com/html/?q={urllib.parse.quote(query)}"
+        req = urllib.request.Request(fallback_url, headers=headers)
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return resp.read().decode("utf-8", errors="replace")
+
     def _search(self, query: str, limit: int) -> str:
-        search_url = f"https://html.duckduckgo.com/html/?q={urllib.parse.quote(query)}"
-        req = urllib.request.Request(
-            search_url,
-            headers={
-                "User-Agent": USER_AGENT,
-                "Accept": "text/html,application/xhtml+xml",
-                "Accept-Language": "en-US,en;q=0.9"
-            }
-        )
-
         try:
-            with urllib.request.urlopen(req, timeout=12) as resp:
-                raw_html = resp.read(MAX_DOWNLOAD_BYTES).decode("utf-8", errors="replace")
+            raw_html = self._fetch_ddg_html(query)
+            results = []
 
-            parser = DDGSearchParser()
-            parser.feed(raw_html)
-            results = parser.results[:limit]
+            # 1. Try DuckDuckGo HTML format
+            link_pattern = re.findall(
+                r'<a[^>]+class="[^"]*result__a[^"]*"[^>]+href="([^"]+)"[^>]*>(.*?)</a>',
+                raw_html,
+                re.DOTALL
+            )
+            snippet_pattern = re.findall(
+                r'<(?:a|td|div)[^>]+class="[^"]*result__snippet[^"]*"[^>]*>(.*?)</(?:a|td|div)>',
+                raw_html,
+                re.DOTALL
+            )
+
+            # 2. Try DuckDuckGo Lite format if HTML format was empty
+            if not link_pattern:
+                link_pattern = re.findall(
+                    r'<a[^>]+class="[^"]*result-link[^"]*"[^>]+href="([^"]+)"[^>]*>(.*?)</a>',
+                    raw_html,
+                    re.DOTALL
+                )
+                snippet_pattern = re.findall(
+                    r'<td[^>]+class="[^"]*result-snippet[^"]*"[^>]*>(.*?)</td>',
+                    raw_html,
+                    re.DOTALL
+                )
+
+            count = min(len(link_pattern), limit)
+            for i in range(count):
+                raw_href, raw_title = link_pattern[i]
+                url = self._clean_url(raw_href)
+                title = re.sub(r'<[^>]+>', '', raw_title).strip()
+                domain = urllib.parse.urlparse(url).netloc
+                
+                snippet = "No snippet available."
+                if i < len(snippet_pattern):
+                    snippet = re.sub(r'<[^>]+>', '', snippet_pattern[i]).strip()
+
+                results.append({
+                    "title": title or "Untitled",
+                    "url": url,
+                    "domain": domain,
+                    "snippet": snippet
+                })
 
             if not results:
                 return f"No search results found for query: '{query}'."
 
             output = [f"### Web Search Results for: \"{query}\"\n"]
             for idx, r in enumerate(results, start=1):
-                output.append(f"{idx}. **{r['title'] or 'Untitled'}**")
+                output.append(f"{idx}. **{r['title']}**")
                 output.append(f"   - **URL:** {r['url']}")
                 output.append(f"   - **Source:** {r['domain']}")
-                output.append(f"   - **Snippet:** {r['snippet'] or 'No snippet available.'}\n")
+                output.append(f"   - **Snippet:** {r['snippet']}\n")
 
             return "\n".join(output).strip()
 
@@ -261,7 +274,6 @@ class WebTool(Tool):
 
         try:
             with urllib.request.urlopen(req, timeout=12) as resp:
-                # Character encoding extraction
                 content_type = resp.headers.get("Content-Type", "")
                 charset = "utf-8"
                 if "charset=" in content_type:

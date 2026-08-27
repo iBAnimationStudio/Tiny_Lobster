@@ -1,10 +1,11 @@
 from typing import List, Dict, Any
 import json
+import sys
 from lobster.config import Config
 from lobster.models.base import ModelBackend
 from lobster.tools.base import Tool
 from lobster.tools.terminal import TerminalTool, is_dangerous
-from lobster.tools.filesystem import FileTool
+from lobster.tools.filesystem import FileTool, is_dangerous_file_op
 from lobster.tools.system import SystemInfoTool
 from lobster.tools.custom_tool_manager import CustomToolManager
 from lobster.tools.dynamic import DynamicTool
@@ -17,11 +18,15 @@ from lobster.memory.facts import FactMemory
 from lobster.tools.web import WebTool
 from lobster.task.manager import TaskManager
 from lobster.tools.task_tool import TaskTool
+from lobster.utils.approval import ApprovalManager
+
+approval_mgr = ApprovalManager()
 
 class Agent:
-    def __init__(self, config: Config, model: ModelBackend):
+    def __init__(self, config: Config, model: ModelBackend, mode: str = "cli"):
         self.config = config
         self.model = model
+        self.mode = mode  # "web" or "cli"
         
         # 1. Initialize Memory Manager & Load History FIRST
         self.task_manager = TaskManager()
@@ -46,7 +51,7 @@ class Agent:
             "file": FileTool(config),
             "system_info": SystemInfoTool(),
             "web": WebTool(config),
-            "task_manager": TaskTool(Config, self.task_manager),
+            "task_manager": TaskTool(config, self.task_manager),
             "custom_tool_manager": CustomToolManager(config),
             "memory": MemoryTool(config)
         }
@@ -79,9 +84,14 @@ class Agent:
         self.system_prompt = f"{base_prompt}\n\n{personality}\n\n{tool_rules}"
         print(f"📜 Loaded {len(personality)} chars of personality and {len(tool_rules)} chars of tool rules.")
 
+    def _ask_confirmation(self, command_or_action: str) -> bool:
+        # Web UI mode -> Route strictly through ApprovalManager
+        if self.mode == "web":
+            print(f"⏳ [Approval] Queued for Web UI: {command_or_action}")
+            return approval_mgr.request_approval(command_or_action, timeout=60)
 
-    def _ask_confirmation(self, command: str) -> bool:
-        print(f"\n⚠️  Destructive command detected: {command}")
+        # Terminal CLI mode -> Prompt in terminal
+        print(f"\n⚠️  Destructive action detected: {command_or_action}")
         resp = input("Allow execution? (y/N): ").strip().lower()
         return resp in ("y", "yes")
 
@@ -94,19 +104,25 @@ class Agent:
         if name == "terminal" and is_dangerous(arguments.get("command", "")):
             if not self._ask_confirmation(arguments["command"]):
                 return "Error: Command execution cancelled by user."
+
+        # Safety check for filesystem operations
+        if name == "file" and is_dangerous_file_op(arguments.get("action", ""), arguments.get("path", "")):
+            action = arguments.get("action", "unknown")
+            path = arguments.get("path", "")
+            if not self._ask_confirmation(f"File operation '{action}' on: {path}"):
+                return f"Error: File {action} cancelled by user."
         
         log_debug(f"Executing {name}: {arguments}", self.config.debug)
         try:
             return tool.execute(**arguments)
         except Exception as e:
             return f"Error executing tool: {str(e)}"
-            
 
     def run_turn(self, user_input: str) -> str:
         facts = self.fact_memory.get_facts()
         memory_context = ""
         if facts:
-            memory_context = "\n\nCURRENT PERSISTENT MEMORY:\n" + json.dump(facts, indent=2)
+            memory_context = "\n\nCURRENT PERSISTENT MEMORY:\n" + json.dumps(facts, indent=2)
     
         final_prompt = self.system_prompt + memory_context
 
@@ -134,9 +150,8 @@ class Agent:
         
         return "Error: Maximum reasoning iterations reached without a final answer."
 
-
     def clear_history(self):
         self.history = []
         self.history_manager.clear_history()
-        self.fact_memory.clear_all() # Also clear facts on /clear
+        self.fact_memory.clear_all()
         print("Conversation history and persistent memory cleared.")
