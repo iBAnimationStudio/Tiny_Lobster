@@ -156,6 +156,50 @@ class Agent:
         
         return "Error: Maximum reasoning iterations reached without a final answer."
 
+    def run_turn_stream(self, user_input: str, event_callback=None):
+        """Streams tool execution events and text chunks in real-time."""
+        facts = self.fact_memory.get_facts()
+        memory_context = ""
+        if facts:
+            memory_context = "\n\nCURRENT PERSISTENT MEMORY:\n" + json.dumps(facts, indent=2)
+
+        final_prompt = self.system_prompt + memory_context
+        self.model.set_system_context(final_prompt, list(self.tools.values()))
+        
+        response = self.model.send_message(user_input)
+
+        for i in range(self.config.max_iterations):
+            log_debug(f"Iteration {i+1}", self.config.debug)
+
+            if not response.get("tool_calls"):
+                final_text = response.get("text", "").strip() or "No response generated."
+                self.history = self.model.history
+                self.history_manager.save_history(self.history)
+                if event_callback:
+                    event_callback({"type": "text", "content": final_text})
+                return final_text
+
+            executed_results = []
+            for tc in response["tool_calls"]:
+                tool_name = tc["name"]
+                tool_args = tc["arguments"]
+                
+                # Stream Tool Call immediately before execution
+                if event_callback:
+                    event_callback({"type": "call", "tool": tool_name, "args": tool_args})
+
+                result = self._execute_tool(tool_name, tool_args)
+                executed_results.append({"name": tool_name, "result": result})
+
+                # Stream Tool Result immediately after execution
+                if event_callback:
+                    event_callback({"type": "result", "tool": tool_name, "output": result})
+
+            response = self.model.send_tool_results(executed_results)
+
+        return "Error: Maximum reasoning iterations reached without a final answer."
+
+
     def clear_history(self):
         self.history = []
         self.history_manager.clear_history()

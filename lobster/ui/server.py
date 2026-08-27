@@ -164,30 +164,40 @@ class LobsterHTTPHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         
         if parsed.path == "/api/chat":
-            length = int(self.headers.get('content-length', 0))
-            body = json.loads(self.rfile.read(length).decode('utf-8'))
-            user_msg = body.get("message", "")
-            
             try:
-                hist_len_before = len(self.agent.history)
-                response = self.agent.run_turn(user_msg)
-                
-                new_entries = self.agent.history[hist_len_before:]
-                tool_events = [
-                    e for e in new_entries 
-                    if isinstance(e, dict) and any(is_tool_part(p) for p in e.get("parts", []))
-                ]
-                
-                debug_info = self._format_debug_events(tool_events) if tool_events else None
+                length = int(self.headers.get('content-length', 0))
+                body = json.loads(self.rfile.read(length).decode('utf-8'))
+                user_msg = body.get("message", "")
 
-                self._set_headers(200)
-                self.wfile.write(json.dumps({"response": response, "debug": debug_info}).encode("utf-8"))
+                # Set SSE streaming headers
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self.send_header("Cache-Control", "no-cache")
+                self.send_header("Connection", "keep-alive")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+
+                def send_event(data):
+                    try:
+                        payload = f"data: {json.dumps(data)}\n\n".encode("utf-8")
+                        self.wfile.write(payload)
+                        self.wfile.flush()
+                    except (BrokenPipeError, ConnectionResetError):
+                        pass
+
+                try:
+                    self.agent.run_turn_stream(user_msg, event_callback=send_event)
+                except Exception as e:
+                    send_event({"type": "error", "content": str(e)})
+                finally:
+                    send_event({"type": "done"})
+
             except (BrokenPipeError, ConnectionResetError):
                 pass
             except Exception as e:
                 try:
                     self._set_headers(500)
-                    self.wfile.write(json.dumps({"response": f"Agent Execution Error: {str(e)}", "debug": None}).encode("utf-8"))
+                    self.wfile.write(json.dumps({"error": str(e)}).encode("utf-8"))
                 except (BrokenPipeError, ConnectionResetError):
                     pass
 
@@ -213,6 +223,7 @@ class LobsterHTTPHandler(BaseHTTPRequestHandler):
         else:
             self._set_headers(404)
             self.wfile.write(b'{"error": "Not Found"}')
+
 
     def log_message(self, format, *args):
         return

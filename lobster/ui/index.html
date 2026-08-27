@@ -356,21 +356,78 @@
       input.value = '';
       btn.disabled = true;
 
+      // Create an empty placeholder message group for lobster
+      const chat = document.getElementById('chat');
+      const group = document.createElement('div');
+      group.className = 'msg-group lobster';
+      
+      const debugDetails = document.createElement('details');
+      debugDetails.className = 'debug-bubble';
+      debugDetails.style.display = 'none';
+      debugDetails.innerHTML = `<summary>⚡ Tool Execution</summary><div class="debug-content"></div>`;
+      group.appendChild(debugDetails);
+
+      const msgDiv = document.createElement('div');
+      msgDiv.className = 'msg lobster';
+      group.appendChild(msgDiv);
+      chat.appendChild(group);
+
       try {
         const res = await fetch('/api/chat', {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
           body: JSON.stringify({message: msg})
         });
-        const data = await res.json();
-        appendMsg('lobster', data.response, data.debug);
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder('utf-8');
+        let buffer = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+
+          const lines = buffer.split('\n\n');
+          buffer = lines.pop(); // Keep partial chunks
+
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            const event = JSON.parse(line.replace('data: ', ''));
+
+            if (event.type === 'call') {
+              debugDetails.style.display = 'block';
+              debugDetails.open = true;
+              const content = debugDetails.querySelector('.debug-content');
+              content.innerHTML += `
+                <div class="debug-step">
+                  <div class="title">▶ Call: ${event.tool}</div>
+                  <pre>${JSON.stringify(event.args, null, 2)}</pre>
+                </div>`;
+            } else if (event.type === 'result') {
+              const content = debugDetails.querySelector('.debug-content');
+              const outStr = typeof event.output === 'object' ? JSON.stringify(event.output, null, 2) : event.output;
+              content.innerHTML += `
+                <div class="debug-step">
+                  <div class="title" style="color:#7ee787;">✔ Result: ${event.tool}</div>
+                  <pre>${outStr}</pre>
+                </div>`;
+            } else if (event.type === 'text') {
+              msgDiv.innerHTML = marked.parse(event.content || '');
+            } else if (event.type === 'error') {
+              msgDiv.textContent = 'Error: ' + event.content;
+            }
+            chat.scrollTop = chat.scrollHeight;
+          }
+        }
         refreshSidebar();
       } catch(e) {
-        appendMsg('lobster', 'Error: ' + e);
+        msgDiv.textContent = 'Error: ' + e;
       } finally {
         btn.disabled = false;
       }
     }
+
 
     async function checkApprovals() {
       try {
