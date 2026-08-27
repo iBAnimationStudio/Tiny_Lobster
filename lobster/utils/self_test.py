@@ -105,5 +105,5 @@ class SelfTester:
             print("\n⚠️  Diagnostics failed. Fix the errors above before running Lobster.")
             return False
         
-        print("\n✨ All systems operational. Starting Hina💖...\n")
+        print("\n✨ All systems operational. Starting Hina...\n")
         return True
