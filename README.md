@@ -1,4 +1,4 @@
-# 🦞 Tiny Lobster
+# 🦞 Tiny Lobster (v0.2.0)
 
 A lightweight, robust, and modular AI agent built from scratch specifically to run inside **Termux** on Android. Inspired by Open-Claw agent architectures, Lobster brings the power of LLMs directly to your mobile terminal with full environment awareness, safe tool execution, and prompt-injection defense.
 
@@ -9,7 +9,7 @@ A lightweight, robust, and modular AI agent built from scratch specifically to r
 - **Termux Native**: Tailored for Android environments using `pkg` and local storage constraints (no `sudo` required).
 - **Modular Tooling**: Equipped with built-in tools for:
   - **Terminal Execution**: Safely run shell commands.
-  - **Filesystem Management**: Read, write, and inspect local files.
+  - **Filesystem Management**: Read, write, move, copy, and inspect local files.
   - **System Info**: Monitor device state, battery, and storage.
   - **Custom Tool Manager**: Dynamically create, execute, and manage custom Python tools at runtime.
   - **Web Tools**: Search and fetch web page contents safely.
