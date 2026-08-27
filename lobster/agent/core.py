@@ -106,10 +106,16 @@ class Agent:
                 return "Error: Command execution cancelled by user."
 
         # Safety check for filesystem operations
-        if name == "file" and is_dangerous_file_op(arguments.get("action", ""), arguments.get("path", "")):
+        if name == "file" and is_dangerous_file_op(
+            arguments.get("action", ""), 
+            arguments.get("path", ""), 
+            arguments.get("destination", None)
+        ):
             action = arguments.get("action", "unknown")
             path = arguments.get("path", "")
-            if not self._ask_confirmation(f"File operation '{action}' on: {path}"):
+            dest = arguments.get("destination", "")
+            desc = f"File {action} on: {path}" + (f" -> {dest}" if dest else "")
+            if not self._ask_confirmation(desc):
                 return f"Error: File {action} cancelled by user."
         
         log_debug(f"Executing {name}: {arguments}", self.config.debug)

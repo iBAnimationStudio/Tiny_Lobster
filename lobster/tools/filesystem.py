@@ -1,5 +1,6 @@
 import os
 import re
+import shutil
 from lobster.tools.base import Tool
 from lobster.config import Config
 
@@ -44,35 +45,32 @@ PROTECTED_CORE_FILES = (
 )
 
 
-def is_dangerous_file_op(action: str, target_path: str) -> bool:
+def is_dangerous_file_op(action: str, target_path: str, destination: str = None) -> bool:
     """Check if a filesystem action poses destructive, privilege, or overwrite risks."""
     if not target_path:
         return False
 
     norm_path = os.path.abspath(os.path.expanduser(target_path.strip()))
+    dest_path = os.path.abspath(os.path.expanduser(destination.strip())) if destination else None
 
-    # 1. Any file or directory deletion
-    if action in ("delete", "remove", "unlink", "rmdir"):
+    # 1. Deletion or moving operations
+    if action in ("delete", "remove", "unlink", "rmdir", "move"):
         return True
 
-    # 2. System and package paths
-    if any(norm_path.startswith(d) for d in PROTECTED_SYSTEM_DIRS):
-        return True
-
-    # 3. Android restricted app data/obb
-    if any(norm_path.startswith(d) for d in PROTECTED_STORAGE_DIRS):
-        return True
-
-    # 4. SSH keys, shell dotfiles, and git internals
-    for pattern in PROTECTED_USER_PATTERNS:
-        if re.search(pattern, norm_path):
+    # 2. Check source and destination paths against protected areas
+    for p in (norm_path, dest_path):
+        if not p:
+            continue
+        if any(p.startswith(d) for d in PROTECTED_SYSTEM_DIRS):
+            return True
+        if any(p.startswith(d) for d in PROTECTED_STORAGE_DIRS):
+            return True
+        if any(re.search(pat, p) for pat in PROTECTED_USER_PATTERNS):
+            return True
+        if any(p.endswith(core_file) for core_file in PROTECTED_CORE_FILES):
             return True
 
-    # 5. Lobster core codebase files
-    if any(norm_path.endswith(core_file) for core_file in PROTECTED_CORE_FILES):
-        return True
-
-    # 6. Overwriting an existing file with 'write' (truncation safeguard)
+    # 3. Truncation safeguard when writing existing non-log/cache files
     if action == "write" and os.path.exists(norm_path):
         if not norm_path.endswith((".log", ".tmp", ".cache")):
             return True
@@ -82,16 +80,17 @@ def is_dangerous_file_op(action: str, target_path: str) -> bool:
 
 class FileTool(Tool):
     name = "file"
-    description = "Perform filesystem operations: read, write, append, delete, list, exists, metadata."
+    description = "Perform filesystem operations: read, write, append, delete, move, copy, list, exists, metadata."
     parameters = {
         "type": "object",
         "properties": {
             "action": {
                 "type": "string",
-                "enum": ["read", "write", "append", "delete", "list", "exists", "metadata"],
+                "enum": ["read", "write", "append", "delete", "move", "copy", "list", "exists", "metadata"],
                 "description": "File operation to perform."
             },
             "path": {"type": "string", "description": "Target file or directory path."},
+            "destination": {"type": "string", "description": "Destination path required for 'move' and 'copy'."},
             "content": {"type": "string", "description": "Required for 'write' or 'append'."}
         },
         "required": ["action", "path"]
@@ -100,9 +99,10 @@ class FileTool(Tool):
     def __init__(self, config: Config):
         self.config = config
 
-    def execute(self, action: str, path: str, content: str = None, **kwargs) -> str:
+    def execute(self, action: str, path: str, destination: str = None, content: str = None, **kwargs) -> str:
         try:
             path = os.path.expanduser(path.strip())
+            dest = os.path.expanduser(destination.strip()) if destination else None
 
             if action == "read":
                 if not os.path.isfile(path):
@@ -126,12 +126,41 @@ class FileTool(Tool):
                     f.write(content)
                 return f"Successfully {action}d {len(content)} characters to {path}"
 
+            elif action == "copy":
+                if not dest:
+                    return "Error: 'destination' parameter is required for 'copy'."
+                if not os.path.exists(path):
+                    return f"Error: Source path does not exist: {path}"
+
+                parent = os.path.dirname(dest)
+                if parent and not os.path.exists(parent):
+                    os.makedirs(parent, exist_ok=True)
+
+                if os.path.isdir(path):
+                    shutil.copytree(path, dest, dirs_exist_ok=True)
+                else:
+                    shutil.copy2(path, dest)
+                return f"Successfully copied '{path}' to '{dest}'"
+
+            elif action == "move":
+                if not dest:
+                    return "Error: 'destination' parameter is required for 'move'."
+                if not os.path.exists(path):
+                    return f"Error: Source path does not exist: {path}"
+
+                parent = os.path.dirname(dest)
+                if parent and not os.path.exists(parent):
+                    os.makedirs(parent, exist_ok=True)
+
+                shutil.move(path, dest)
+                return f"Successfully moved '{path}' to '{dest}'"
+
             elif action == "delete":
                 if not os.path.exists(path):
                     return f"Error: Path does not exist: {path}"
                 if os.path.isdir(path):
-                    os.rmdir(path)
-                    return f"Successfully removed directory: {path}"
+                    shutil.rmtree(path)
+                    return f"Successfully removed directory tree: {path}"
                 else:
                     os.remove(path)
                     return f"Successfully deleted file: {path}"
