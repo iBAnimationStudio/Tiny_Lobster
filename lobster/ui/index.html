@@ -356,7 +356,6 @@
       input.value = '';
       btn.disabled = true;
 
-      // Create an empty placeholder message group for lobster
       const chat = document.getElementById('chat');
       const group = document.createElement('div');
       group.className = 'msg-group lobster';
@@ -382,14 +381,15 @@
         const reader = res.body.getReader();
         const decoder = new TextDecoder('utf-8');
         let buffer = '';
+        let isDone = false;
 
-        while (true) {
+        while (!isDone) {
           const { done, value } = await reader.read();
           if (done) break;
           buffer += decoder.decode(value, { stream: true });
 
           const lines = buffer.split('\n\n');
-          buffer = lines.pop(); // Keep partial chunks
+          buffer = lines.pop();
 
           for (const line of lines) {
             if (!line.startsWith('data: ')) continue;
@@ -416,15 +416,21 @@
               msgDiv.innerHTML = marked.parse(event.content || '');
             } else if (event.type === 'error') {
               msgDiv.textContent = 'Error: ' + event.content;
+              isDone = true;
+              break;
+            } else if (event.type === 'done') {
+              isDone = true;
+              break;
             }
             chat.scrollTop = chat.scrollHeight;
           }
         }
-        refreshSidebar();
+        await reader.cancel();
       } catch(e) {
         msgDiv.textContent = 'Error: ' + e;
       } finally {
         btn.disabled = false;
+        refreshSidebar();
       }
     }
 
