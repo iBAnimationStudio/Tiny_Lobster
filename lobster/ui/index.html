@@ -274,35 +274,38 @@
       const group = document.createElement('div');
       group.className = 'msg-group ' + role;
 
-      // Handle debug events properly (Array or Object)
       if (debugData) {
         let events = Array.isArray(debugData) ? debugData : [debugData];
         if (events.length > 0) {
           const debug = document.createElement('details');
           debug.className = 'debug-bubble';
           
-          const tools = [...new Set(events.map(d => d.tool || d.type || 'tool'))].join(', ');
+          const tools = [...new Set(events.map(d => d.tool || d.name || 'tool'))].join(', ');
           let innerHTML = `<summary>⚡ Tool Execution [${tools}]</summary><div class="debug-content">`;
 
           events.forEach(ev => {
+            const toolName = ev.tool || ev.name || 'unknown';
+            const args = ev.args !== undefined ? ev.args : ev.arguments;
+
             if (ev.type === 'call') {
-              const hasArgs = ev.args && Object.keys(ev.args).length > 0;
+              const hasArgs = args && typeof args === 'object' && Object.keys(args).length > 0;
               innerHTML += `
                 <div class="debug-step">
-                  <div class="title">▶ Call: ${ev.tool}</div>
-                  ${hasArgs ? `<pre>${JSON.stringify(ev.args, null, 2)}</pre>` : '<span style="color:#8b949e;font-size:0.7rem;">(No args)</span>'}
+                  <div class="title">▶ Call: ${toolName}</div>
+                  ${hasArgs ? `<pre>${JSON.stringify(args, null, 2)}</pre>` : '<span style="color:#8b949e;font-size:0.7rem;">(No args)</span>'}
                 </div>`;
             } else if (ev.type === 'result') {
+              const outputStr = typeof ev.output === 'object' ? JSON.stringify(ev.output, null, 2) : (ev.output ?? '');
               innerHTML += `
                 <div class="debug-step">
-                  <div class="title" style="color:#7ee787;">✔ Result: ${ev.tool}</div>
-                  <pre>${typeof ev.output === 'object' ? JSON.stringify(ev.output, null, 2) : ev.output}</pre>
+                  <div class="title" style="color:#7ee787;">✔ Result: ${toolName}</div>
+                  <pre>${outputStr}</pre>
                 </div>`;
             } else if (ev.content) {
               innerHTML += `
                 <div class="debug-step">
                   <div class="title">${ev.type || 'Event'}</div>
-                  <pre>${ev.content}</pre>
+                  <pre>${typeof ev.content === 'object' ? JSON.stringify(ev.content, null, 2) : ev.content}</pre>
                 </div>`;
             }
           });
@@ -316,7 +319,6 @@
       const div = document.createElement('div');
       div.className = 'msg ' + role;
       
-      // Render Markdown for assistant/lobster, plaintext for user
       if (role === 'user') {
         div.textContent = text;
       } else {

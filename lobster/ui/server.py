@@ -11,6 +11,12 @@ HISTORY_FILE_PATH = os.path.join(os.getcwd(), ".lobster_data", "history.json")
 
 approval_mgr = ApprovalManager()
 
+def is_tool_part(p: Any) -> bool:
+    """Helper to detect tool parts across both SDK snake_case and REST camelCase formats."""
+    if not isinstance(p, dict):
+        return False
+    return any(k in p for k in ("functionCall", "function_call", "functionResponse", "function_response"))
+
 class LobsterHTTPHandler(BaseHTTPRequestHandler):
     agent: Agent = None
 
@@ -29,7 +35,7 @@ class LobsterHTTPHandler(BaseHTTPRequestHandler):
         self._set_headers(200)
 
     def _format_debug_events(self, events):
-        """Extract clean tool call and result pairs, stripping API metadata."""
+        """Extract clean tool call and result pairs, handling both camelCase and snake_case."""
         cleaned = []
         for e in events:
             if not isinstance(e, dict):
@@ -39,19 +45,20 @@ class LobsterHTTPHandler(BaseHTTPRequestHandler):
                 if not isinstance(p, dict):
                     continue
                 
-                # Format Tool Call
-                if "functionCall" in p:
-                    fc = p["functionCall"]
+                # Support function_call / functionCall
+                fc = p.get("function_call") or p.get("functionCall")
+                if fc:
                     cleaned.append({
                         "type": "call",
                         "tool": fc.get("name", "unknown"),
                         "args": fc.get("args", {})
                     })
                 
-                # Format Tool Result
-                elif "functionResponse" in p:
-                    fr = p["functionResponse"]
-                    res = fr.get("response", {}).get("result", "")
+                # Support function_response / functionResponse
+                fr = p.get("function_response") or p.get("functionResponse")
+                if fr:
+                    resp = fr.get("response", {})
+                    res = resp.get("result", resp) if isinstance(resp, dict) else resp
                     cleaned.append({
                         "type": "result",
                         "tool": fr.get("name", "unknown"),
@@ -91,12 +98,14 @@ class LobsterHTTPHandler(BaseHTTPRequestHandler):
                                 if isinstance(p, dict):
                                     if "text" in p and p["text"]:
                                         text_content += p["text"]
-                                    elif "functionCall" in p or "functionResponse" in p:
+                                    elif is_tool_part(p):
                                         has_tool_event = True
                                 elif isinstance(p, str):
                                     text_content += p
+
                             if has_tool_event:
                                 pending_debug.extend(self._format_debug_events([item]))
+
                             if text_content.strip():
                                 display_role = "user" if role == "user" else "lobster"
                                 formatted_history.append({
@@ -166,7 +175,7 @@ class LobsterHTTPHandler(BaseHTTPRequestHandler):
                 new_entries = self.agent.history[hist_len_before:]
                 tool_events = [
                     e for e in new_entries 
-                    if isinstance(e, dict) and any("functionCall" in p or "functionResponse" in p for p in e.get("parts", []))
+                    if isinstance(e, dict) and any(is_tool_part(p) for p in e.get("parts", []))
                 ]
                 
                 debug_info = self._format_debug_events(tool_events) if tool_events else None
