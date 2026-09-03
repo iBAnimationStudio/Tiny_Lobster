@@ -6,7 +6,7 @@ from lobster.task.manager import TaskManager
 class TaskTool(Tool):
     name = "task_manager"
     description = (
-        "Schedule, repeat, update, list, and inspect autonomous background tasks. "
+        "Schedule, repeat, update, cancel, list, and inspect autonomous background tasks. "
         "Supports cron expressions, run_at timestamps, fixed intervals, priority/urgency sorting, "
         "and direct terminal or AI reasoning execution (1 task per minute rate limit)."
     )
@@ -16,7 +16,7 @@ class TaskTool(Tool):
             "action": {
                 "type": "string",
                 "enum": ["create", "update", "cancel", "list", "get"],
-                "description": "Task operation: 'create', 'update', 'list', or 'get'."
+                "description": "Task operation: 'create', 'update', 'cancel', 'list', or 'get'."
             },
             "description": {
                 "type": "string",
@@ -68,11 +68,11 @@ class TaskTool(Tool):
             },
             "task_id": {
                 "type": "string",
-                "description": "Target task ID (required for 'update' or 'get')."
+                "description": "Target task ID (required for 'update', 'cancel', or 'get')."
             },
             "status_filter": {
                 "type": "string",
-                "enum": ["pending", "in_progress", "completed", "failed"],
+                "enum": ["pending", "in_progress", "completed", "failed", "cancelled"],
                 "description": "Filter list by status."
             }
         },
@@ -109,16 +109,10 @@ class TaskTool(Tool):
 
                 if is_task_need_ai:
                     if not prompt or not prompt.strip():
-                        return (
-                            "Error: 'prompt' is required when 'is_task_need_ai' is True. "
-                            "Please provide the exact prompt to feed the AI when the task runs."
-                        )
+                        return "Error: 'prompt' is required when 'is_task_need_ai' is True."
                 else:
                     if not command or not command.strip():
-                        return (
-                            "Error: 'command' is required when 'is_task_need_ai' is False. "
-                            "Please provide the shell command to execute."
-                        )
+                        return "Error: 'command' is required when 'is_task_need_ai' is False."
 
                 t = self.tm.create_task(
                     description=description.strip(),
@@ -184,14 +178,15 @@ class TaskTool(Tool):
                 if not task_id:
                     return "Error: 'task_id' is required to update."
                 updates = {k: v for k, v in kwargs.items() if v is not None}
-                if priority: updates["priority"] = priority
-                if urgency: updates["urgency"] = urgency
-                if description: updates["description"] = description
-                if prompt: updates["prompt"] = prompt
-                if command: updates["command"] = command
-                if run_at: updates["run_at"] = run_at
-                if interval_seconds: updates["interval_seconds"] = interval_seconds
-                if cron: updates["cron"] = cron
+                if priority is not None: updates["priority"] = priority
+                if urgency is not None: updates["urgency"] = urgency
+                if description is not None: updates["description"] = description
+                if prompt is not None: updates["prompt"] = prompt
+                if command is not None: updates["command"] = command
+                if run_at is not None: updates["run_at"] = run_at
+                if delay_seconds: updates["delay_seconds"] = delay_seconds
+                if interval_seconds is not None: updates["interval_seconds"] = interval_seconds
+                if cron is not None: updates["cron"] = cron
                 if repeat is not None: updates["repeat"] = repeat
 
                 success = self.tm.update_task(task_id, **updates)
@@ -207,7 +202,6 @@ class TaskTool(Tool):
                 if success:
                     return f"🛑 Task '{task_id}' has been cancelled and stopped."
                 return f"Error: Task '{task_id}' not found or already completed/cancelled."
-
 
             return f"Error: Unknown action '{action}'."
         except Exception as e:

@@ -10,7 +10,6 @@ from typing import List, Dict, Any, Optional, Tuple
 
 
 def _match_cron_part(val: int, expr: str, min_val: int, max_val: int) -> bool:
-    """Matches an integer against standard cron segment syntax (*, */n, 1-5, 1,2,3)."""
     if expr == "*":
         return True
     for part in expr.split(","):
@@ -35,18 +34,18 @@ def _match_cron_part(val: int, expr: str, min_val: int, max_val: int) -> bool:
 
 
 def compute_next_cron(cron_expr: str, base_dt: Optional[datetime] = None) -> datetime:
-    """Calculates next matching datetime for a standard 5-part cron string."""
     parts = cron_expr.strip().split()
     if len(parts) != 5:
         raise ValueError(f"Invalid cron format '{cron_expr}'. Expected: 'min hour day month weekday'")
 
     min_expr, hr_expr, dom_expr, mon_expr, dow_expr = parts
+    # Support 7 as Sunday in dow expression
+    dow_expr = re.sub(r'\b7\b', '0', dow_expr)
+
     current = (base_dt or datetime.now()).replace(second=0, microsecond=0) + timedelta(minutes=1)
 
-    # Search up to 1 year forward minute-by-minute
     for _ in range(525600):
-        # Python weekday: Mon=0 ... Sun=6; Cron convention: Sun=0 ... Sat=6
-        cron_dow = (current.weekday() + 1) % 7
+        cron_dow = (current.weekday() + 1) % 7  # Sun=0, Mon=1... Sat=6
         
         if (
             _match_cron_part(current.minute, min_expr, 0, 59)
@@ -67,7 +66,6 @@ def parse_schedule_epoch(
     interval_seconds: Optional[int] = None,
     cron_expr: Optional[str] = None
 ) -> Tuple[float, str]:
-    """Calculates epoch timestamp and ISO datetime string for next run."""
     now = datetime.now()
 
     if cron_expr:
@@ -76,7 +74,6 @@ def parse_schedule_epoch(
 
     if run_at:
         run_at_str = run_at.strip()
-        # HH:MM or HH:MM:SS format
         if re.match(r"^\d{1,2}:\d{2}(:\d{2})?$", run_at_str):
             t_parts = [int(p) for p in run_at_str.split(":")]
             target = now.replace(
@@ -89,7 +86,6 @@ def parse_schedule_epoch(
                 target += timedelta(days=1)
             return target.timestamp(), target.isoformat()
 
-        # Full ISO timestamp
         try:
             target = datetime.fromisoformat(run_at_str.replace("Z", "+00:00"))
             return target.timestamp(), target.isoformat()
@@ -163,8 +159,6 @@ class TaskManager:
                 "command": command.strip() if command else "",
                 "priority": max(1, min(int(priority), 10)),
                 "urgency": max(1, min(int(urgency), 10)),
-                
-                # Scheduling fields
                 "run_at": run_at,
                 "delay_seconds": delay_seconds,
                 "interval_seconds": interval_seconds,
@@ -174,7 +168,6 @@ class TaskManager:
                 "next_run": next_run_iso,
                 "next_run_epoch": next_run_epoch,
                 "last_run": None,
-                
                 "status": "pending",
                 "result": None,
                 "created_at": datetime.now(timezone.utc).isoformat(),
@@ -193,7 +186,6 @@ class TaskManager:
                         if key in t and key != "id":
                             t[key] = val
                     
-                    # Recompute schedule if time parameters changed
                     if any(k in kwargs for k in ("run_at", "delay_seconds", "interval_seconds", "cron")):
                         epoch, iso = parse_schedule_epoch(
                             run_at=t.get("run_at"),
@@ -216,7 +208,6 @@ class TaskManager:
             return tasks
 
     def get_next_task(self) -> Optional[Dict[str, Any]]:
-        """Finds the highest priority/urgency task due for execution."""
         with self.lock:
             tasks = self._load()
             now = time.time()
@@ -234,7 +225,6 @@ class TaskManager:
             return eligible[0]
 
     def complete_task(self, task_id: str, result: str, failed: bool = False):
-        """Finalizes run; reschedules recurring tasks or marks one-offs completed."""
         with self.lock:
             tasks = self._load()
             for t in tasks:
@@ -243,20 +233,28 @@ class TaskManager:
                     t["last_run"] = now_iso
                     t["result"] = result
 
-                    # Recurring task evaluation
-                    is_recurring = t.get("repeat", False) or t.get("interval_seconds") or t.get("cron")
+                    is_recurring = bool(t.get("repeat") or t.get("interval_seconds") or t.get("cron"))
                     remaining_count = t.get("repeat_count")
 
-                    if is_recurring and not failed:
-                        if remaining_count is not None:
+                    # Allow recurring tasks to re-arm even if the last iteration threw an error
+                    if is_recurring:
+                        if remaining_count is not None and not failed:
                             remaining_count -= 1
                             t["repeat_count"] = remaining_count
 
                         if remaining_count is None or remaining_count > 0:
-                            # Schedule next recurrence
+                            # If it was an interval/cron recurrence:
+                            interval = t.get("interval_seconds")
+                            cron = t.get("cron")
+                            
+                            # Fallback if neither was set but repeat=True
+                            if not interval and not cron:
+                                interval = 3600  # Default to 1 hour instead of immediate loop
+                                t["interval_seconds"] = interval
+
                             next_epoch, next_iso = parse_schedule_epoch(
-                                interval_seconds=t.get("interval_seconds"),
-                                cron_expr=t.get("cron")
+                                interval_seconds=interval,
+                                cron_expr=cron
                             )
                             t["next_run_epoch"] = next_epoch
                             t["next_run"] = next_iso
@@ -268,9 +266,7 @@ class TaskManager:
                     break
             self._save(tasks)
 
-
     def cancel_task(self, task_id: str, reason: str = "Cancelled by user") -> bool:
-        """Stops/cancels an active or pending task without deleting its audit record."""
         with self.lock:
             tasks = self._load()
             for t in tasks:
@@ -285,30 +281,28 @@ class TaskManager:
             return False
 
 
-
 class TaskWorker:
-    """Background daemon enforcing 1 task per minute execution rate limit."""
     def __init__(self, task_manager: TaskManager, agent_executor):
         self.tm = task_manager
         self.agent_executor = agent_executor
         self.last_execution_time: float = 0.0
-        self.running = False
+        self.stop_event = threading.Event()
         self.thread = None
 
     def start(self):
-        self.running = True
+        self.stop_event.clear()
         self.thread = threading.Thread(target=self._loop, daemon=True)
         self.thread.start()
 
     def stop(self):
-        self.running = False
+        self.stop_event.set()
 
     def _loop(self):
-        while self.running:
+        while not self.stop_event.is_set():
             now = time.time()
             time_since_last = now - self.last_execution_time
             if time_since_last < 60:
-                time.sleep(min(5.0, 60 - time_since_last))
+                self.stop_event.wait(timeout=min(2.0, 60 - time_since_last))
                 continue
 
             task = self.tm.get_next_task()
@@ -316,7 +310,7 @@ class TaskWorker:
                 self.last_execution_time = time.time()
                 self._execute(task)
             else:
-                time.sleep(5.0)
+                self.stop_event.wait(timeout=3.0)
 
     def _execute(self, task: Dict[str, Any]):
         task_id = task["id"]

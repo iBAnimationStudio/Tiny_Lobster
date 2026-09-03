@@ -195,7 +195,7 @@ class WebUIServer:
             self.app,
             host="0.0.0.0",
             port=self.port,
-            log_level="debug",
+            log_level="warning",
             access_log=True
         )
         self.server = uvicorn.Server(self.config)
