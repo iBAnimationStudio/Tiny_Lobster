@@ -1,53 +1,66 @@
 import os
 import re
 import json
+import socket
 import ipaddress
-import urllib.request
 import urllib.parse
-import urllib.error
 from html.parser import HTMLParser
 from typing import Dict, Any, List, Tuple
+from curl_cffi import requests
 from lobster.tools.base import Tool
 from lobster.config import Config
 
-USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
-MAX_DOWNLOAD_BYTES = 1024 * 1024  # 1 MB
-MAX_EXTRACTED_CHARS = 4000        # Context limit
+MAX_DOWNLOAD_BYTES = 2 * 1024 * 1024  # 2 MB
+MAX_EXTRACTED_CHARS = 4000
+
+BOT_CHALLENGE_PATTERNS = [
+    r"making sure you're not a bot",
+    r"just a moment\.\.\.",
+    r"protected by anubis",
+    r"cf-browser-verification",
+    r"turnstile",
+    r"attention required! \| cloudflare",
+    r"checking your browser",
+    r"ddos-guard"
+]
+
+
+def is_safe_ip(ip_str: str) -> bool:
+    """Check if an IP string belongs to private, loopback, or reserved space."""
+    try:
+        ip = ipaddress.ip_address(ip_str)
+        return not (ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast)
+    except ValueError:
+        return False
 
 
 def is_safe_url(url_str: str) -> Tuple[bool, str]:
-    """Validate URL protocol and block loopback/private SSRF targets."""
+    """Validate protocol and perform DNS resolution checks against SSRF."""
     try:
         parsed = urllib.parse.urlparse(url_str.strip())
         if parsed.scheme not in ("http", "https"):
             return False, f"Unsupported scheme '{parsed.scheme}'. Only http and https are allowed."
-        
-        hostname = parsed.hostname
-        if not hostname:
-            return False, "Invalid URL: Missing hostname."
 
-        if hostname.lower() in ("localhost", "127.0.0.1", "0.0.0.0", "::1"):
-            return False, "Access to localhost/loopback addresses is prohibited."
+        hostname = parsed.hostname
+        if not hostname or hostname.lower() in ("localhost", "0.0.0.0"):
+            return False, "Access to localhost is prohibited."
 
         try:
-            ip = ipaddress.ip_address(hostname)
-            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
-                return False, f"Access to private/local IP address '{hostname}' is blocked."
-        except ValueError:
-            pass
+            for item in socket.getaddrinfo(hostname, None):
+                if not is_safe_ip(item[4][0]):
+                    return False, f"Blocked target private/local IP: {item[4][0]}"
+        except socket.gaierror:
+            return False, f"DNS resolution failed for hostname: {hostname}"
 
         return True, ""
     except Exception as e:
-        return False, f"URL validation error: {str(e)}"
+        return False, f"URL error: {str(e)}"
 
 
 class CleanTextExtractor(HTMLParser):
-    """Strips HTML boilerplate and extracts clean readable text."""
-    IGNORE_TAGS = {
-        "script", "style", "noscript", "svg", "header", 
-        "footer", "nav", "iframe", "head", "link", "meta"
-    }
-    BLOCK_TAGS = {"p", "div", "article", "section", "li", "tr", "blockquote"}
+    """Parses static HTML safely into clean plain text for the agent."""
+    IGNORE_TAGS = {"script", "style", "noscript", "svg", "iframe", "head", "canvas"}
+    BLOCK_TAGS = {"p", "div", "article", "section", "li", "tr", "blockquote", "h1", "h2", "h3", "h4", "h5", "h6"}
     HEADING_MAP = {"h1": "# ", "h2": "## ", "h3": "### ", "h4": "#### ", "h5": "##### ", "h6": "###### "}
 
     def __init__(self):
@@ -150,140 +163,126 @@ class WebTool(Tool):
         except Exception as e:
             return f"Error in web tool execution: {str(e)}"
 
-    def _clean_url(self, raw_url: str) -> str:
-        """Decode DuckDuckGo redirect wrapper URLs."""
+    def _clean_ddg_url(self, raw_url: str) -> str:
         if "uddg=" in raw_url:
             parsed = urllib.parse.parse_qs(urllib.parse.urlparse(raw_url).query)
             return parsed.get("uddg", [raw_url])[0]
-        if raw_url.startswith("//"):
-            return "https:" + raw_url
         return raw_url
 
-    def _fetch_ddg_html(self, query: str) -> str:
-        """Fetch search results via POST to avoid GET bot-blocks."""
+    def _search_ddg_html(self, query: str, limit: int) -> List[Dict[str, str]]:
         endpoints = [
             ("https://html.duckduckgo.com/html/", {"q": query, "b": ""}),
             ("https://lite.duckduckgo.com/lite/", {"q": query})
         ]
 
-        headers = {
-            "User-Agent": USER_AGENT,
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            "Accept-Language": "en-US,en;q=0.9",
-            "Content-Type": "application/x-www-form-urlencoded",
-            "Origin": "https://duckduckgo.com",
-            "Referer": "https://duckduckgo.com/"
-        }
-
-        for url, form_data in endpoints:
+        for endpoint, payload in endpoints:
             try:
-                data = urllib.parse.urlencode(form_data).encode("utf-8")
-                req = urllib.request.Request(url, data=data, headers=headers)
-                with urllib.request.urlopen(req, timeout=10) as resp:
-                    raw = resp.read().decode("utf-8", errors="replace")
-                    if "result__snippet" in raw or "result-snippet" in raw:
-                        return raw
+                resp = requests.post(endpoint, data=payload, impersonate="chrome124", timeout=8)
+                if resp.status_code != 200:
+                    continue
+
+                links = re.findall(
+                    r'<a[^>]+class="[^"]*(?:result__a|result-link)[^"]*"[^>]+href="([^"]+)"[^>]*>(.*?)</a>',
+                    resp.text,
+                    re.DOTALL
+                )
+                snippets = re.findall(
+                    r'<(?:a|td|div)[^>]+class="[^"]*(?:result__snippet|result-snippet)[^"]*"[^>]*>(.*?)</(?:a|td|div)>',
+                    resp.text,
+                    re.DOTALL
+                )
+
+                if not links:
+                    continue
+
+                results = []
+                for i in range(min(len(links), limit)):
+                    raw_url, raw_title = links[i]
+                    final_url = self._clean_ddg_url(raw_url)
+                    title = re.sub(r"<[^>]+>", "", raw_title).strip()
+                    snippet = re.sub(r"<[^>]+>", "", snippets[i]).strip() if i < len(snippets) else "No snippet."
+                    
+                    domain = urllib.parse.urlparse(final_url).netloc
+                    if "duckduckgo.com" not in domain:
+                        results.append({
+                            "title": title or "Untitled",
+                            "url": final_url,
+                            "domain": domain,
+                            "snippet": snippet
+                        })
+
+                if results:
+                    return results
             except Exception:
                 continue
-
-        # Fallback to standard GET if POST failed
-        fallback_url = f"https://html.duckduckgo.com/html/?q={urllib.parse.quote(query)}"
-        req = urllib.request.Request(fallback_url, headers=headers)
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            return resp.read().decode("utf-8", errors="replace")
+        return []
 
     def _search(self, query: str, limit: int) -> str:
-        try:
-            raw_html = self._fetch_ddg_html(query)
-            results = []
+        results = self._search_ddg_html(query, limit)
 
-            # 1. Try DuckDuckGo HTML format
-            link_pattern = re.findall(
-                r'<a[^>]+class="[^"]*result__a[^"]*"[^>]+href="([^"]+)"[^>]*>(.*?)</a>',
-                raw_html,
-                re.DOTALL
-            )
-            snippet_pattern = re.findall(
-                r'<(?:a|td|div)[^>]+class="[^"]*result__snippet[^"]*"[^>]*>(.*?)</(?:a|td|div)>',
-                raw_html,
-                re.DOTALL
-            )
+        # Simplify query if exact phrasing returned nothing
+        if not results:
+            simplified = re.sub(r"\b(official|website|repository|page|site|webpage)\b", "", query, flags=re.I)
+            simplified = re.sub(r"\s+", " ", simplified).strip()
+            if simplified and simplified.lower() != query.lower():
+                results = self._search_ddg_html(simplified, limit)
 
-            # 2. Try DuckDuckGo Lite format if HTML format was empty
-            if not link_pattern:
-                link_pattern = re.findall(
-                    r'<a[^>]+class="[^"]*result-link[^"]*"[^>]+href="([^"]+)"[^>]*>(.*?)</a>',
-                    raw_html,
-                    re.DOTALL
-                )
-                snippet_pattern = re.findall(
-                    r'<td[^>]+class="[^"]*result-snippet[^"]*"[^>]*>(.*?)</td>',
-                    raw_html,
-                    re.DOTALL
-                )
+        # Wikipedia OpenSearch fallback
+        if not results:
+            try:
+                wiki_url = f"https://en.wikipedia.org/w/api.php?action=opensearch&search={urllib.parse.quote(query)}&limit={limit}&namespace=0&format=json"
+                resp = requests.get(wiki_url, impersonate="chrome124", timeout=6)
+                data = resp.json()
+                for i in range(min(len(data[3]), limit)):
+                    results.append({
+                        "title": data[1][i],
+                        "url": data[3][i],
+                        "domain": "en.wikipedia.org",
+                        "snippet": data[2][i] or "Wikipedia entry."
+                    })
+            except Exception:
+                pass
 
-            count = min(len(link_pattern), limit)
-            for i in range(count):
-                raw_href, raw_title = link_pattern[i]
-                url = self._clean_url(raw_href)
-                title = re.sub(r'<[^>]+>', '', raw_title).strip()
-                domain = urllib.parse.urlparse(url).netloc
-                
-                snippet = "No snippet available."
-                if i < len(snippet_pattern):
-                    snippet = re.sub(r'<[^>]+>', '', snippet_pattern[i]).strip()
+        if not results:
+            return f"No search results found for: '{query}'."
 
-                results.append({
-                    "title": title or "Untitled",
-                    "url": url,
-                    "domain": domain,
-                    "snippet": snippet
-                })
+        output = [f"### Web Search Results for: \"{query}\"\n"]
+        for idx, r in enumerate(results[:limit], start=1):
+            output.append(f"{idx}. **{r['title']}**\n   - **URL:** {r['url']}\n   - **Source:** {r['domain']}\n   - **Snippet:** {r['snippet']}\n")
 
-            if not results:
-                return f"No search results found for query: '{query}'."
-
-            output = [f"### Web Search Results for: \"{query}\"\n"]
-            for idx, r in enumerate(results, start=1):
-                output.append(f"{idx}. **{r['title']}**")
-                output.append(f"   - **URL:** {r['url']}")
-                output.append(f"   - **Source:** {r['domain']}")
-                output.append(f"   - **Snippet:** {r['snippet']}\n")
-
-            return "\n".join(output).strip()
-
-        except urllib.error.HTTPError as e:
-            return f"Search HTTP Error {e.code}: {e.reason}"
-        except urllib.error.URLError as e:
-            return f"Search Network Failure: {e.reason}"
-        except Exception as e:
-            return f"Web search failed: {str(e)}"
+        return "\n".join(output).strip()
 
     def _fetch(self, target_url: str) -> str:
         safe, reason = is_safe_url(target_url)
         if not safe:
             return f"Error: {reason}"
 
-        req = urllib.request.Request(
-            target_url,
-            headers={
-                "User-Agent": USER_AGENT,
-                "Accept": "text/html,application/xhtml+xml,text/plain"
-            }
-        )
-
         try:
-            with urllib.request.urlopen(req, timeout=12) as resp:
-                content_type = resp.headers.get("Content-Type", "")
-                charset = "utf-8"
-                if "charset=" in content_type:
-                    charset = content_type.split("charset=")[-1].split(";")[0].strip()
+            resp = requests.get(
+                target_url,
+                impersonate="chrome124",
+                timeout=12
+            )
 
-                raw_bytes = resp.read(MAX_DOWNLOAD_BYTES)
-                try:
-                    html_content = raw_bytes.decode(charset, errors="replace")
-                except Exception:
-                    html_content = raw_bytes.decode("utf-8", errors="replace")
+            # SSRF check on final URL after redirects
+            if resp.url != target_url:
+                safe, reason = is_safe_url(resp.url)
+                if not safe:
+                    return f"Error: Redirect blocked: {reason}"
+
+            if resp.status_code >= 400:
+                return f"Fetch HTTP Error {resp.status_code}: {resp.reason}"
+
+            html_content = resp.text
+
+            # Fail cleanly on interactive bot challenges instead of feeding junk to the LLM
+            is_bot_page = any(re.search(pat, html_content, re.IGNORECASE) for pat in BOT_CHALLENGE_PATTERNS)
+            if is_bot_page:
+                return (
+                    f"Notice: The website at {resp.url} requires interactive browser verification "
+                    "(Cloudflare Turnstile, Anubis, or DDoS-Guard). Content cannot be extracted via direct HTTP. "
+                    "Please refer to the search snippets or query an alternative source URL."
+                )
 
             parser = CleanTextExtractor()
             parser.feed(html_content)
@@ -301,7 +300,7 @@ class WebTool(Tool):
             output = [
                 "---",
                 f"**Page Title:** {title}",
-                f"**URL:** {target_url}",
+                f"**URL:** {resp.url}",
                 "---",
                 "<untrusted_web_content>",
                 extracted_text,
@@ -313,11 +312,5 @@ class WebTool(Tool):
 
             return "\n".join(output)
 
-        except urllib.error.HTTPError as e:
-            return f"Fetch HTTP Error {e.code}: {e.reason}"
-        except urllib.error.URLError as e:
-            return f"Fetch Network Failure: {e.reason}"
-        except TimeoutError:
-            return f"Fetch Error: Connection timed out while reaching {target_url}."
         except Exception as e:
             return f"Error fetching webpage: {str(e)}"
