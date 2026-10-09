@@ -14,7 +14,27 @@ A lightweight, robust, and modular AI agent built from scratch specifically to r
   - **Custom Tool Manager**: Dynamically create, execute, and manage custom Python tools at runtime.
   - **Web Tools**: Search and fetch web page contents safely.
 - **Robust Security**: Built-in Data-Instruction Separation to defend against indirect prompt injection attacks.
-- **Persistent Memory**: Store and retrieve persistent facts across sessions.
+- **Basic Persistent Memory**: JSON-based conversation history and saved facts exist, but the current memory implementation has important limitations. See [Known Memory Issues](#-known-memory-issues) and [issue #1](https://github.com/iBAnimationStudio/Tiny_Lobster/issues/1).
+
+---
+
+## ⚠️ Known Memory Issues
+
+The current memory system is **not context-aware and needs a redesign**. Persistent storage alone does not prevent the model's context window from filling up.
+
+Current limitations:
+
+- **Conversation history can grow without a limit.** The history-pruning code is commented out, so old messages may continue accumulating and being loaded into the model's conversation history.
+- **Every saved fact is added to the system prompt.** The agent does not select facts based on relevance to the current request.
+- **No semantic memory retrieval.** Saved facts use a JSON category/key structure without embedding-based search or relevance ranking.
+- **The storage path depends on the working directory.** Starting the agent from a different directory can cause it to use a different `.lobster_data` location.
+- **`/clear` removes both conversation history and saved facts.** Clearing a conversation can therefore delete long-term information too.
+
+### Planned direction
+
+The memory system needs a context-aware redesign with a bounded recent conversation window, searchable older exchanges, relevance-based retrieval of durable facts, and an explicit context/token budget. It should also use a stable data path and separate clearing a conversation from deleting long-term memories.
+
+Progress and details are tracked in [issue #1: Memory system is broken and can exhaust the context window](https://github.com/iBAnimationStudio/Tiny_Lobster/issues/1).
 
 ---
 
@@ -87,5 +107,5 @@ Distributed under the GNU GPL v3 License. See `LICENSE` for more information.
 ---
 
 Notes:
-_The avove README was written by lobster._
-_This project is not fully tested and may contain more bugs that i have fixed_
+_The above README was written by lobster._
+_This project is not fully tested and may contain more bugs that I have not fixed._
