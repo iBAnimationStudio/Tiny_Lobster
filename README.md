@@ -119,7 +119,7 @@ Lobster allows you to create and execute dynamic tools on the fly using the `cus
 
 ## 📜 License
 
-Distributed under the GNU GPL v3 License. See `LICENSE` for more information.
+Distributed under the GNU GPL v3 License. See [LICENSE](LICENSE) for more information.
 ---
 
 Notes:
