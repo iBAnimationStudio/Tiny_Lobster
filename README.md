@@ -18,6 +18,20 @@ A lightweight, robust, and modular AI agent built from scratch specifically to r
 
 ---
 
+## ⚠️ Known Installation Issues
+
+### Google GenAI / Gemini dependencies on Termux
+
+Installing the Google GenAI/Gemini dependency chain with `pip` may fail in Termux on Android because some transitive dependencies may be unavailable or require native compilation that does not work in this environment.
+
+**Impact:** A fresh installation may fail at `pip install -r requirements.txt`, preventing the Gemini backend from running.
+
+The exact failing transitive packages and a reliable workaround have not yet been confirmed. This does not necessarily mean the Google GenAI SDK itself is incompatible with Termux.
+
+See [issue #2: Google GenAI dependency installation fails on Termux](https://github.com/iBAnimationStudio/Tiny_Lobster/issues/2) for investigation and progress. If you encounter this, please include the failing package name and the relevant pip/build error output when reporting it. Do not assume an unverified workaround will work.
+
+---
+
 ## ⚠️ Known Memory Issues
 
 The current memory system is **not context-aware and needs a redesign**. Persistent storage alone does not prevent the model's context window from filling up.
@@ -69,6 +83,8 @@ Progress and details are tracked in [issue #1: Memory system is broken and can e
    ```sh
    pip install -r requirements.txt
    ```
+
+   **Note:** See [Known Installation Issues](#-known-installation-issues) before installing on Termux. The Gemini dependency chain may currently fail to install.
 
 4. **Configure environment variables:**
    ```sh
