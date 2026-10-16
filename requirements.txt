@@ -2,6 +2,8 @@
 
 google-genai
 
-restapi
+fastapi
+
+uvicorn
 
 curl_cffi
