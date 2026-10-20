@@ -76,7 +76,7 @@ Progress and details are tracked in [issue #1: Memory system is broken and can e
 
 2. **Install Termux dependencies:**
    ```sh
-   pkg update && pkg install python rust build-essential ninja clang cmake llvm cryptography git termux-api
+   pkg update && pkg install python rust build-essential ninja clang cmake llvm python-cryptography git termux-api
    ```
 
 3. **Install Python packages:**
